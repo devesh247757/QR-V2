@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Admin{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Dashboard</h2>
+    <p class="page-subtitle">{{ today }} &nbsp;·&nbsp; {{ stats.today_count }} check-in{{ 's' if stats.today_count != 1 }} today</p>
+  </div>
+  <a href="{{ url_for('scanner') }}" class="btn-primary">
+    <i class="bi bi-camera-fill"></i> Open Scanner
+  </a>
+</div>
+
+<!-- ── STATS ──────────────────────────────────────────────────────────── -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-icon blue"><i class="bi bi-people-fill"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.student_count }}</div>
+      <div class="stat-label">Students</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green"><i class="bi bi-calendar-check-fill"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.today_count }}</div>
+      <div class="stat-label">Today's Check-ins</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon violet"><i class="bi bi-graph-up-arrow"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.week_count }}</div>
+      <div class="stat-label">This Week</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon amber"><i class="bi bi-archive-fill"></i></div>
+    <div class="stat-body">
+      <div class="stat-value">{{ stats.attendance_count }}</div>
+      <div class="stat-label">Total Records</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── TWO-COLUMN LAYOUT ─────────────────────────────────────────────── -->
+<div class="content-grid">
+
+  <!-- LEFT: Users + Attendance -->
+  <div class="content-main">
+
+    <!-- Users table -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <h5 class="card-title"><i class="bi bi-people"></i> Students &amp; Users</h5>
+        <span class="badge-count">{{ users|length }} total</span>
+      </div>
+      <div class="table-wrap">
+        {% if users %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th class="text-center">Present Days</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td class="text-muted">{{ u['id'] }}</td>
+              <td>
+                <div class="user-cell">
+                  <div class="user-avatar-sm">{{ u['name'][0].upper() }}</div>
+                  <span>{{ u['name'] }}</span>
+                </div>
+              </td>
+              <td class="text-muted small">{{ u['email'] }}</td>
+              <td>
+                <span class="role-badge role-{{ u['role'] }}">{{ u['role'].title() }}</span>
+              </td>
+              <td class="text-center">
+                <span class="attendance-count">{{ u['total_attendance'] }}</span>
+              </td>
+              <td class="text-right">
+                <div class="action-btns">
+                  <a href="{{ url_for('generate_qr', user_id=u['id']) }}"
+                     class="btn-action green" title="Generate QR">
+                    <i class="bi bi-qr-code"></i>
+                  </a>
+                  <a href="{{ url_for('edit_user', user_id=u['id']) }}"
+                     class="btn-action blue" title="Edit user">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  {% if u['id'] != session.user_id %}
+                  <form method="POST" action="{{ url_for('delete_user', user_id=u['id']) }}"
+                        style="display:inline"
+                        onsubmit="return confirm('Delete {{ u['name'] }} and all their attendance records?')">
+                    <button type="submit" class="btn-action red" title="Delete user">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-people"></i>
+          <p>No users yet. Students will appear here after they register.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Attendance records -->
+    <div class="card">
+      <div class="card-header flex-wrap gap-2">
+        <h5 class="card-title"><i class="bi bi-calendar3"></i> Attendance Records</h5>
+        <a href="{{ url_for('export_csv', **{'from': date_from, 'to': date_to, 'q': search}) }}"
+           class="btn-outline-sm">
+          <i class="bi bi-download"></i> Export CSV
+        </a>
+      </div>
+
+      <!-- Filters -->
+      <form method="GET" action="{{ url_for('admin_dashboard') }}" class="filter-bar">
+        <div class="input-wrapper-sm">
+          <i class="bi bi-search input-icon-sm"></i>
+          <input type="text" name="q" class="filter-input" placeholder="Search name / email…"
+                 value="{{ search }}"/>
+        </div>
+        <input type="date" name="from" class="filter-input" value="{{ date_from }}" title="From date"/>
+        <input type="date" name="to"   class="filter-input" value="{{ date_to }}"   title="To date"/>
+        <button type="submit" class="btn-filter">Filter</button>
+        {% if date_from or date_to or search %}
+        <a href="{{ url_for('admin_dashboard') }}" class="btn-filter-clear">Clear</a>
+        {% endif %}
+      </form>
+
+      <div class="table-wrap">
+        {% if attendance %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Email</th>
+              <th>Date</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in attendance %}
+            <tr>
+              <td>{{ a['name'] }}</td>
+              <td class="text-muted small">{{ a['email'] }}</td>
+              <td>{{ a['date'] }}</td>
+              <td class="text-muted">{{ a['time'] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-calendar-x"></i>
+          <p>No records match your filters.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div><!-- /content-main -->
+
+  <!-- RIGHT: QR panel -->
+  <div class="content-side">
+    <div class="card qr-panel">
+      <div class="card-header">
+        <h5 class="card-title"><i class="bi bi-qr-code"></i> QR Preview</h5>
+      </div>
+      {% if qr_image_url and qr_user %}
+      <div class="qr-display">
+        <div class="qr-user-info">
+          <div class="user-avatar-lg">{{ qr_user['name'][0].upper() }}</div>
+          <div>
+            <div class="qr-user-name">{{ qr_user['name'] }}</div>
+            <div class="qr-user-email">{{ qr_user['email'] }}</div>
+          </div>
+        </div>
+        <img class="qr-image" src="{{ qr_image_url }}" alt="QR for {{ qr_user['name'] }}"/>
+        <p class="qr-expiry-note">
+          <i class="bi bi-clock"></i> This QR expires in 24 hours.
+          Regenerate daily for security.
+        </p>
+        <div class="qr-actions">
+          <a href="{{ qr_image_url }}" download="qr_{{ qr_user['name']|replace(' ','_') }}.png"
+             class="btn-primary">
+            <i class="bi bi-download"></i> Download
+          </a>
+          <a href="{{ url_for('generate_qr', user_id=qr_user['id']) }}"
+             class="btn-outline">
+            <i class="bi bi-arrow-repeat"></i> Refresh
+          </a>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <i class="bi bi-qr-code" style="font-size:2.5rem;color:var(--primary)"></i>
+        <p>Click <strong>Generate QR</strong> next to any student to preview their code here.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Quick scanner link -->
+    <div class="card scanner-promo">
+      <i class="bi bi-camera-fill" style="font-size:2rem;color:var(--primary)"></i>
+      <h6>In-Browser Scanner</h6>
+      <p>Use your device camera to scan student QRs and mark attendance instantly.</p>
+      <a href="{{ url_for('scanner') }}" class="btn-primary" style="width:100%;justify-content:center">
+        <i class="bi bi-camera"></i> Open Scanner
+      </a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

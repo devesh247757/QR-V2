@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}My Attendance · QR Attendance{% endblock %}
+{% block content %}
+<div class="page-content student-page">
+
+  <!-- Welcome header -->
+  <div class="student-header">
+    <div class="student-welcome">
+      <div class="student-avatar">{{ session.name[0].upper() }}</div>
+      <div>
+        <h2 class="page-title">Hello, {{ session.name.split()[0] }}!</h2>
+        <p class="page-subtitle">{{ today }}</p>
+      </div>
+    </div>
+    <div class="today-status {% if today_marked %}status-present{% else %}status-absent{% endif %}">
+      <i class="bi bi-{% if today_marked %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+      {{ "Present today" if today_marked else "Not yet marked today" }}
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="student-stats">
+    <div class="stu-stat-card">
+      <div class="stu-stat-value">{{ summary.total }}</div>
+      <div class="stu-stat-label">Days Present</div>
+    </div>
+    <div class="stu-stat-card">
+      <div class="stu-stat-value">{{ summary.working_days }}</div>
+      <div class="stu-stat-label">Working Days</div>
+    </div>
+    <div class="stu-stat-card pct-card {% if summary.percentage >= 75 %}pct-good{% elif summary.percentage >= 50 %}pct-low{% else %}pct-critical{% endif %}">
+      <div class="stu-stat-value">{{ summary.percentage }}%</div>
+      <div class="stu-stat-label">Attendance %</div>
+    </div>
+    <div class="stu-stat-card">
+      <div class="stu-stat-value status-pill status-{{ summary.status.lower() }}">{{ summary.status }}</div>
+      <div class="stu-stat-label">Status</div>
+    </div>
+  </div>
+
+  <!-- Attendance bar -->
+  {% if summary.working_days > 0 %}
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="card-title"><i class="bi bi-bar-chart-fill"></i> Attendance Overview</h5>
+    </div>
+    <div class="att-bar-wrap">
+      <div class="att-bar-track">
+        <div class="att-bar-fill {% if summary.percentage >= 75 %}fill-good{% elif summary.percentage >= 50 %}fill-low{% else %}fill-critical{% endif %}"
+             style="width: {{ [summary.percentage, 100]|min }}%">
+          <span class="att-bar-label">{{ summary.percentage }}%</span>
+        </div>
+      </div>
+      <div class="att-bar-legend">
+        <span class="legend-item good"><i class="bi bi-circle-fill"></i> ≥75% Good</span>
+        <span class="legend-item low"><i class="bi bi-circle-fill"></i> 50–74% Low</span>
+        <span class="legend-item critical"><i class="bi bi-circle-fill"></i> &lt;50% Critical</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Calendar -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="card-title"><i class="bi bi-calendar3"></i> This Month</h5>
+      <span class="badge-count">{{ now.strftime('%B %Y') }}</span>
+    </div>
+    <div class="calendar-grid" id="calGrid"></div>
+  </div>
+
+  <!-- Records table -->
+  <div class="card">
+    <div class="card-header">
+      <h5 class="card-title"><i class="bi bi-list-check"></i> Attendance Log</h5>
+      <span class="badge-count">{{ records|length }} entries</span>
+    </div>
+    {% if records %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Date</th>
+            <th>Day</th>
+            <th>Check-in Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i, r in records|enumerate %}
+          <tr>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td>{{ r['date'] }}</td>
+            <td class="text-muted">
+              {% set d = r['date'].split('-') %}
+              {% set days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              —
+            </td>
+            <td><span class="time-badge"><i class="bi bi-clock"></i> {{ r['time'] }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="bi bi-calendar-x"></i>
+      <p>No attendance recorded yet. Scan your QR code to get started!</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+// Build calendar for current month
+(function() {
+  const presentDates = new Set({{ present_dates | list | tojson }});
+  const today = new Date();
+  const year  = today.getFullYear();
+  const month = today.getMonth();
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const grid = document.getElementById('calGrid');
+  if (!grid) return;
+
+  // Day headers
+  dayNames.forEach(d => {
+    const h = document.createElement('div');
+    h.className = 'cal-day-header';
+    h.textContent = d;
+    grid.appendChild(h);
+  });
+
+  // Empty cells before first day
+  for (let i = 0; i < firstDay; i++) {
+    const e = document.createElement('div');
+    e.className = 'cal-day empty';
+    grid.appendChild(e);
+  }
+
+  // Day cells
+  for (let d = 1; d <= daysInMonth; d++) {
+    const pad = String(month + 1).padStart(2,'0');
+    const dd  = String(d).padStart(2,'0');
+    const iso = `${year}-${pad}-${dd}`;
+    const isToday   = (d === today.getDate());
+    const isPresent = presentDates.has(iso);
+    const dow = new Date(year, month, d).getDay();
+    const isSun = dow === 0;
+
+    const cell = document.createElement('div');
+    cell.className = 'cal-day' +
+      (isPresent  ? ' present'  : '') +
+      (isToday    ? ' today'    : '') +
+      (isSun      ? ' sunday'   : '');
+    cell.textContent = d;
+    if (isPresent) {
+      const tick = document.createElement('span');
+      tick.className = 'cal-tick';
+      tick.textContent = '✓';
+      cell.appendChild(tick);
+    }
+    grid.appendChild(cell);
+  }
+})();
+</script>
+{% endblock %}

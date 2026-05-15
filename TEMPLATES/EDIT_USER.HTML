@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Edit User · Admin{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Edit User</h2>
+    <p class="page-subtitle">Modify details for {{ user['name'] }}</p>
+  </div>
+  <a href="{{ url_for('admin_dashboard') }}" class="btn-outline">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="form-page">
+  <div class="card form-card">
+    <div class="form-card-avatar">{{ user['name'][0].upper() }}</div>
+    <form method="POST" action="{{ url_for('edit_user', user_id=user['id']) }}" novalidate>
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <div class="input-wrapper">
+          <i class="bi bi-person input-icon"></i>
+          <input type="text" name="name" class="form-input" value="{{ user['name'] }}" required/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <div class="input-wrapper">
+          <i class="bi bi-envelope input-icon"></i>
+          <input type="email" name="email" class="form-input" value="{{ user['email'] }}" required/>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <div class="input-wrapper">
+          <i class="bi bi-shield input-icon"></i>
+          <select name="role" class="form-input form-select">
+            <option value="student" {% if user['role'] == 'student' %}selected{% endif %}>Student</option>
+            <option value="admin"   {% if user['role'] == 'admin'   %}selected{% endif %}>Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">New Password <span class="form-hint">(leave blank to keep current)</span></label>
+        <div class="input-wrapper">
+          <i class="bi bi-lock input-icon"></i>
+          <input type="password" name="new_password" class="form-input" placeholder="••••••••" id="newPwd"/>
+          <button type="button" class="input-toggle" onclick="togglePwd('newPwd', this)">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+      </div>
+      <div class="form-actions">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn-outline">Cancel</a>
+        <button type="submit" class="btn-primary">
+          <i class="bi bi-check-lg"></i> Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function togglePwd(id, btn) {
+  const inp = document.getElementById(id);
+  const icon = btn.querySelector('i');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  icon.className = inp.type === 'text' ? 'bi bi-eye-slash' : 'bi bi-eye';
+}
+</script>
+{% endblock %}

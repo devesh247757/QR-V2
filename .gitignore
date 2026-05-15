@@ -1,0 +1,43 @@
+# Virtual Environment
+venv/
+.env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Database files
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Environment secrets
+.env
+secrets.json
+
+# Uploaded/generated files
+uploads/
+instance/
+
+# Temporary files
+tmp/
+temp/
+
+# Build files
+dist/
+build/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Flask session/cache
+.flaskenv

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% if success %}Attendance Marked{% else %}Scan Failed{% endif %} · QR Attendance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Sora', sans-serif;
+      background: {% if success %}#f0fdf4{% else %}#fef2f2{% endif %};
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 1.5rem;
+      padding: 3rem 2.5rem;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,.08);
+      animation: slideUp .4s ease;
+    }
+    @keyframes slideUp {
+      from { opacity:0; transform:translateY(20px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .icon-ring {
+      width: 90px; height: 90px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 2.5rem;
+      background: {% if success %}#dcfce7{% else %}#fee2e2{% endif %};
+      color: {% if success %}#16a34a{% else %}#dc2626{% endif %};
+    }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #1e293b; margin-bottom: .75rem; }
+    p  { color: #64748b; line-height: 1.6; margin-bottom: 2rem; }
+    .btn {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .75rem 1.75rem;
+      border-radius: .75rem;
+      text-decoration: none;
+      font-weight: 600; font-size: .9rem;
+      background: {% if success %}#16a34a{% else %}#4f46e5{% endif %};
+      color: #fff;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .9; }
+    .timestamp { font-size: .8rem; color: #94a3b8; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="icon-ring">
+    <i class="bi bi-{% if success %}check-circle-fill{% else %}x-circle-fill{% endif %}"></i>
+  </div>
+  <h1>{% if success %}Attendance Marked!{% else %}Scan Failed{% endif %}</h1>
+  <p>{{ message }}</p>
+  <a href="javascript:history.back()" class="btn">
+    <i class="bi bi-arrow-left"></i> Go Back
+  </a>
+  <div class="timestamp">{{ now.strftime('%d %b %Y, %H:%M:%S') }}</div>
+</div>
+</body>
+</html>

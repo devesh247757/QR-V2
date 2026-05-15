@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}QR Scanner · Admin{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">QR Scanner</h2>
+    <p class="page-subtitle">Point camera at a student's QR code to mark attendance</p>
+  </div>
+  <a href="{{ url_for('admin_dashboard') }}" class="btn-outline">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="scanner-layout">
+
+  <!-- Camera column -->
+  <div class="scanner-col">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title"><i class="bi bi-camera-fill"></i> Camera Feed</h5>
+        <div class="scanner-controls">
+          <button id="startBtn" class="btn-primary" onclick="startScanner()">
+            <i class="bi bi-play-fill"></i> Start
+          </button>
+          <button id="stopBtn" class="btn-outline" onclick="stopScanner()" style="display:none">
+            <i class="bi bi-stop-fill"></i> Stop
+          </button>
+        </div>
+      </div>
+      <div class="scanner-viewport">
+        <div id="scannerPlaceholder" class="scanner-placeholder">
+          <i class="bi bi-camera"></i>
+          <p>Click <strong>Start</strong> to activate the camera</p>
+        </div>
+        <div id="reader" style="display:none"></div>
+        <div class="scanner-overlay" id="scannerOverlay" style="display:none">
+          <div class="scan-frame"></div>
+          <p class="scan-hint">Align QR code within the frame</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results column -->
+  <div class="scanner-col">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title"><i class="bi bi-list-check"></i> Scan Results</h5>
+        <button class="btn-outline-sm" onclick="clearLog()">
+          <i class="bi bi-trash"></i> Clear
+        </button>
+      </div>
+      <div id="resultLog" class="result-log">
+        <div class="result-empty">
+          <i class="bi bi-inbox"></i>
+          <p>Scan results will appear here</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title"><i class="bi bi-bar-chart"></i> Session Stats</h5>
+      </div>
+      <div class="session-stats">
+        <div class="sess-stat">
+          <div class="sess-stat-value" id="countSuccess">0</div>
+          <div class="sess-stat-label">Marked</div>
+        </div>
+        <div class="sess-stat">
+          <div class="sess-stat-value" id="countDup">0</div>
+          <div class="sess-stat-label">Already Present</div>
+        </div>
+        <div class="sess-stat">
+          <div class="sess-stat-value" id="countError">0</div>
+          <div class="sess-stat-label">Errors</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+let scanner = null;
+let lastToken = null;
+let lastTokenTime = 0;
+const DEBOUNCE_MS = 3000;  // 3 seconds between same scan
+let cntSuccess = 0, cntDup = 0, cntError = 0;
+
+function startScanner() {
+  document.getElementById('scannerPlaceholder').style.display = 'none';
+  document.getElementById('reader').style.display = 'block';
+  document.getElementById('scannerOverlay').style.display = 'flex';
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display = 'inline-flex';
+
+  scanner = new Html5Qrcode("reader");
+  const config = { fps: 10, qrbox: { width: 260, height: 260 } };
+
+  scanner.start(
+    { facingMode: "environment" },
+    config,
+    onScanSuccess,
+    () => {}  // suppress intermediate errors
+  ).catch(err => {
+    addResult(false, 'Camera error: ' + err, 'error');
+    stopScanner();
+  });
+}
+
+function stopScanner() {
+  if (scanner) {
+    scanner.stop().catch(() => {});
+    scanner = null;
+  }
+  document.getElementById('reader').style.display = 'none';
+  document.getElementById('scannerOverlay').style.display = 'none';
+  document.getElementById('scannerPlaceholder').style.display = 'flex';
+  document.getElementById('startBtn').style.display = 'inline-flex';
+  document.getElementById('stopBtn').style.display = 'none';
+}
+
+function onScanSuccess(decodedText) {
+  // Extract token from the URL in the QR code
+  let token = '';
+  try {
+    const url   = new URL(decodedText);
+    const parts = url.pathname.split('/');
+    token = parts[parts.length - 1];
+  } catch {
+    token = decodedText;  // fallback: treat entire string as token
+  }
+
+  // Debounce: ignore repeated scans of same token
+  const now = Date.now();
+  if (token === lastToken && (now - lastTokenTime) < DEBOUNCE_MS) return;
+  lastToken     = token;
+  lastTokenTime = now;
+
+  markAttendance(token);
+}
+
+async function markAttendance(token) {
+  try {
+    const res  = await fetch('/api/mark', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ token }),
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      cntSuccess++;
+      document.getElementById('countSuccess').textContent = cntSuccess;
+      addResult(true, data.message, 'success');
+    } else {
+      const isDup = data.message && data.message.includes('already');
+      if (isDup) { cntDup++; document.getElementById('countDup').textContent = cntDup; }
+      else       { cntError++; document.getElementById('countError').textContent = cntError; }
+      addResult(false, data.message || 'Unknown error', isDup ? 'warning' : 'error');
+    }
+  } catch (e) {
+    cntError++;
+    document.getElementById('countError').textContent = cntError;
+    addResult(false, 'Network error: ' + e.message, 'error');
+  }
+}
+
+function addResult(success, message, type) {
+  const log = document.getElementById('resultLog');
+  const empty = log.querySelector('.result-empty');
+  if (empty) empty.remove();
+
+  const now  = new Date().toLocaleTimeString();
+  const item = document.createElement('div');
+  item.className = `result-item result-${type}`;
+  item.innerHTML = `
+    <div class="result-icon">
+      <i class="bi bi-${type === 'success' ? 'check-circle-fill' : type === 'warning' ? 'exclamation-circle-fill' : 'x-circle-fill'}"></i>
+    </div>
+    <div class="result-text">
+      <div class="result-message">${message}</div>
+      <div class="result-time">${now}</div>
+    </div>
+  `;
+  log.prepend(item);
+  // Limit log to 20 items
+  const items = log.querySelectorAll('.result-item');
+  if (items.length > 20) items[items.length - 1].remove();
+}
+
+function clearLog() {
+  const log = document.getElementById('resultLog');
+  log.innerHTML = '<div class="result-empty"><i class="bi bi-inbox"></i><p>Scan results will appear here</p></div>';
+  cntSuccess = cntDup = cntError = 0;
+  document.getElementById('countSuccess').textContent = '0';
+  document.getElementById('countDup').textContent     = '0';
+  document.getElementById('countError').textContent   = '0';
+}
+
+// Stop scanner when leaving page
+window.addEventListener('beforeunload', stopScanner);
+</script>
+{% endblock %}
