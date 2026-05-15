@@ -183,7 +183,57 @@ def role_required(role: str):
         return wrapper
     return decorator
 
+def init_db() -> None:
+    STATIC_DIR.mkdir(exist_ok=True)
+    QR_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            name      TEXT    NOT NULL,
+            email     TEXT    NOT NULL UNIQUE,
+            password  TEXT    NOT NULL,
+            role      TEXT    NOT NULL DEFAULT 'student',
+            created_at TEXT   NOT NULL DEFAULT (DATE('now'))
+        );
 
+        CREATE TABLE IF NOT EXISTS attendance (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id   INTEGER NOT NULL,
+            date      TEXT    NOT NULL,
+            time      TEXT    NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_att_user_date
+            ON attendance(user_id, date);
+        CREATE INDEX IF NOT EXISTS idx_att_date
+            ON attendance(date);
+        CREATE INDEX IF NOT EXISTS idx_att_user
+            ON attendance(user_id);
+    """)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 🔐 AUTO-CREATE DEFAULT ADMIN ACCOUNT
+    # ══════════════════════════════════════════════════════════════════════
+    ADMIN_NAME     = "DVS"
+    ADMIN_EMAIL    = "dvs@gmail.com"          # ← CHANGE THIS
+    ADMIN_PASSWORD = "Dvs@12345"              # ← CHANGE THIS
+
+    cur = conn.execute("SELECT id FROM users WHERE email=?", (ADMIN_EMAIL,))
+    if not cur.fetchone():
+        conn.execute(
+            "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'admin')",
+            (ADMIN_NAME, ADMIN_EMAIL, generate_password_hash(ADMIN_PASSWORD)),
+        )
+        print(f"[✓] Default admin created: {ADMIN_EMAIL}")
+
+    conn.commit()
+    conn.close()
+
+
+init_db()
 def build_qr_token(user_id: int) -> str:
     return serializer.dumps({"uid": user_id})
 
