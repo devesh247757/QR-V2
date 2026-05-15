@@ -1,7 +1,3 @@
-"""
-QR Attendance System — v2.0
-Enhanced & Secured Rewrite
-"""
 from __future__ import annotations
 
 import csv
@@ -15,7 +11,7 @@ from pathlib import Path
 import qrcode
 from flask import (
     Flask, abort, flash, g, make_response, redirect,
-    render_template, request, session, url_for,
+    render_template, request, send_from_directory, session, url_for,
 )
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -28,15 +24,27 @@ try:
 except ImportError:
     pass
 
+# ─── ENVIRONMENT DETECTION ────────────────────────────────────────────────────
+IS_VERCEL = os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV") is not None
+IS_PROD   = os.getenv("FLASK_ENV", "development") == "production" or IS_VERCEL
+
 # ─── PATHS ────────────────────────────────────────────────────────────────────
-BASE_DIR   = Path(__file__).resolve().parent
-DB_PATH    = BASE_DIR / "database.db"
+BASE_DIR = Path(__file__).resolve().parent
+
+# On Vercel, only /tmp is writable. Use it for DB + QR codes.
+if IS_VERCEL:
+    WRITABLE_DIR = Path("/tmp")
+    DB_PATH = WRITABLE_DIR / "database.db"
+    QR_DIR  = WRITABLE_DIR / "qrs"
+else:
+    WRITABLE_DIR = BASE_DIR
+    DB_PATH = BASE_DIR / "database.db"
+    QR_DIR  = BASE_DIR / "static" / "qrs"
+
 STATIC_DIR = BASE_DIR / "static"
-QR_DIR     = STATIC_DIR / "qrs"
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 QR_MAX_AGE = int(os.getenv("QR_MAX_AGE", 86400))   # 24 hours default
-IS_PROD    = os.getenv("FLASK_ENV", "development") == "production"
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config.update(
@@ -69,10 +77,15 @@ serializer = URLSafeTimedSerializer(
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
+        # Ensure DB is initialised (important on Vercel where /tmp resets)
+        if not DB_PATH.exists():
+            init_db()
         conn = sqlite3.connect(app.config["DATABASE"])
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
+        # WAL mode does not work well on Vercel's ephemeral /tmp — use default
+        if not IS_VERCEL:
+            conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
         g.db = conn
     return g.db
@@ -100,9 +113,13 @@ def execute_db(sql: str, params: tuple = ()):
 
 
 def init_db() -> None:
-    STATIC_DIR.mkdir(exist_ok=True)
-    QR_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(app.config["DATABASE"])
+    # Create writable dirs safely
+    try:
+        QR_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -133,6 +150,7 @@ def init_db() -> None:
     conn.close()
 
 
+# Initialise DB on import (works for both local + Vercel cold starts)
 init_db()
 
 
@@ -192,7 +210,6 @@ def mark_attendance(user_id: int) -> tuple[bool, str]:
 
 
 def get_attendance_summary(user_id: int) -> dict:
-    """Return stats for a student's attendance."""
     records = query_db(
         "SELECT date FROM attendance WHERE user_id = ? ORDER BY date ASC",
         (user_id,),
@@ -200,12 +217,11 @@ def get_attendance_summary(user_id: int) -> dict:
     total = len(records)
     first_date = records[0]["date"] if records else date.today().isoformat()
 
-    # Working days since first attendance (Mon–Sat)
     start = datetime.strptime(first_date, "%Y-%m-%d").date()
     end   = date.today()
     working_days = sum(
         1 for n in range((end - start).days + 1)
-        if (start + timedelta(days=n)).weekday() < 6  # Mon=0 … Sat=5
+        if (start + timedelta(days=n)).weekday() < 6
     ) if total else 0
 
     pct = round((total / working_days * 100) if working_days else 0, 1)
@@ -217,10 +233,19 @@ def get_attendance_summary(user_id: int) -> dict:
     }
 
 
-# Template context helpers
 @app.context_processor
 def inject_globals():
     return {"today": date.today().isoformat(), "now": datetime.now()}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QR IMAGE SERVING (Vercel-safe)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/qrs/<path:filename>")
+def serve_qr(filename: str):
+    """Serve QR images from the writable directory (/tmp on Vercel)."""
+    return send_from_directory(str(QR_DIR), filename)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -314,7 +339,6 @@ def logout():
 @login_required
 @role_required("admin")
 def admin_dashboard():
-    # ── Stats ──────────────────────────────────────────────────────────────
     stats = {
         "student_count": query_db(
             "SELECT COUNT(*) AS c FROM users WHERE role='student'", one=True
@@ -332,7 +356,6 @@ def admin_dashboard():
         )["c"],
     }
 
-    # ── Users with per-student attendance count ─────────────────────────────
     users = query_db("""
         SELECT u.id, u.name, u.email, u.role, u.created_at,
                COUNT(a.id) AS total_attendance
@@ -342,7 +365,6 @@ def admin_dashboard():
         ORDER BY u.name ASC
     """)
 
-    # ── Attendance with optional filters ───────────────────────────────────
     date_from = request.args.get("from", "")
     date_to   = request.args.get("to", "")
     search    = request.args.get("q", "").strip()
@@ -361,13 +383,13 @@ def admin_dashboard():
 
     attendance = query_db(sql, tuple(params))
 
-    # ── QR preview ─────────────────────────────────────────────────────────
     qr_user_id  = request.args.get("qr", type=int)
     qr_image_url = qr_user = None
     if qr_user_id:
         qr_file = QR_DIR / f"qr_{qr_user_id}.png"
         if qr_file.exists():
-            qr_image_url = url_for("static", filename=f"qrs/qr_{qr_user_id}.png")
+            # Use our custom /qrs/<file> route instead of /static/
+            qr_image_url = url_for("serve_qr", filename=f"qr_{qr_user_id}.png")
             qr_user = query_db("SELECT * FROM users WHERE id=?", (qr_user_id,), one=True)
 
     return render_template(
@@ -385,11 +407,14 @@ def generate_qr(user_id: int):
     user = query_db("SELECT * FROM users WHERE id=?", (user_id,), one=True)
     if not user:
         abort(404)
+
+    # Ensure writable QR dir exists (re-create on every cold start in /tmp)
+    QR_DIR.mkdir(parents=True, exist_ok=True)
+
     token    = build_qr_token(user_id)
     mark_url = request.url_root.rstrip("/") + url_for("mark_token", token=token)
     qr_path  = QR_DIR / f"qr_{user_id}.png"
 
-    # Always regenerate so the token in the QR is fresh
     img = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -399,7 +424,7 @@ def generate_qr(user_id: int):
     img.add_data(mark_url)
     img.make(fit=True)
     qr_img = img.make_image(fill_color="#1a1a2e", back_color="white")
-    qr_img.save(qr_path)
+    qr_img.save(str(qr_path))
 
     flash(f"Fresh QR code generated for {user['name']}.", "success")
     return redirect(url_for("admin_dashboard", qr=user_id))
@@ -464,7 +489,10 @@ def delete_user(user_id: int):
     if not user:
         abort(404)
     execute_db("DELETE FROM users WHERE id=?", (user_id,))
-    (QR_DIR / f"qr_{user_id}.png").unlink(missing_ok=True)
+    try:
+        (QR_DIR / f"qr_{user_id}.png").unlink(missing_ok=True)
+    except OSError:
+        pass
     flash(f"User '{user['name']}' and all their records have been deleted.", "success")
     return redirect(url_for("admin_dashboard"))
 
@@ -508,14 +536,11 @@ def scanner():
     return render_template("scanner.html")
 
 
-# ── JSON API for in-browser scanner ──────────────────────────────────────────
-
 @app.route("/api/mark", methods=["POST"])
 @login_required
 @role_required("admin")
 @limiter.limit("120 per minute")
 def api_mark():
-    """Called by the browser QR scanner via fetch()."""
     data  = request.get_json(silent=True) or {}
     token = data.get("token", "").strip()
     if not token:
@@ -567,7 +592,6 @@ def user_dashboard():
 @app.route("/mark/token/<token>")
 @limiter.limit("30 per minute")
 def mark_token(token: str):
-    """Student self-scans their QR code; attendance is marked automatically."""
     try:
         user_id = parse_qr_token(token)
     except SignatureExpired:
@@ -590,7 +614,6 @@ def mark_token(token: str):
 
 @app.cli.command("create-admin")
 def create_admin_cmd():
-    """Create an admin user: flask create-admin"""
     import getpass
     print("── Create Admin User ──────────────────")
     name    = input("Name  : ").strip()
@@ -614,7 +637,6 @@ def create_admin_cmd():
 
 @app.cli.command("reset-db")
 def reset_db_cmd():
-    """Drop and reinitialise the database: flask reset-db"""
     confirm = input("This will DELETE all data. Type YES to continue: ")
     if confirm == "YES":
         if DB_PATH.exists():
